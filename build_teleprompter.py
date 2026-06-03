@@ -47,7 +47,7 @@ class ContentExtractor(HTMLParser):
     """Parse Google Docs HTML into clean teleprompter content."""
 
     def __init__(self, zf: zipfile.ZipFile):
-        super().__init__()
+        super().__init__(convert_charrefs=False)
         self.zf = zf
         self.out: list[str] = []
         self._in_body = False
@@ -137,7 +137,8 @@ class ContentExtractor(HTMLParser):
     def handle_data(self, data):
         if not self._in_body or self._skip_depth:
             return
-        self.out.append(data)
+        # Escape any stray < > that came through as raw characters
+        self.out.append(data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
     def handle_entityref(self, name):
         if not self._in_body or self._skip_depth:
@@ -146,8 +147,8 @@ class ContentExtractor(HTMLParser):
             "rsquo": "’", "lsquo": "‘",
             "rdquo": "”", "ldquo": "“",
             "ndash": "–", "mdash": "—",
-            "amp": "&", "nbsp": " ",
-            "lt": "<", "gt": ">",
+            "amp": "&amp;", "nbsp": " ",
+            "lt": "&lt;", "gt": "&gt;",
         }
         self.out.append(entities.get(name, f"&{name};"))
 
@@ -171,9 +172,9 @@ def mark_stage_cues(html: str) -> str:
         r'<span class="cue">\1</span>',
         html,
     )
-    # Match <angle> cues (already decoded from &lt;&gt; by the parser)
+    # Match &lt;acting notes&gt; preserved as entities by the parser
     html = re.sub(
-        r"(<(?!img|br|/|strong|p|span)[^>]{1,40}>)",
+        r"(&lt;[^&<>]{1,40}&gt;)",
         r'<span class="cue">\1</span>',
         html,
     )

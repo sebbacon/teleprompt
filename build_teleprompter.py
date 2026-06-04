@@ -307,11 +307,19 @@ body {{
 #bar button#btn-play {{ font-size: 2.6rem; padding: 0.2rem 0.8rem; }}
 #speed-display {{
   font-variant-numeric: tabular-nums;
-  min-width: 4ch;
+  min-width: 6ch;
   text-align: center;
   font-family: system-ui, sans-serif;
   font-size: 1.9rem;
   color: var(--fg);
+}}
+#time-remaining {{
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-family: system-ui, sans-serif;
+  font-size: 1.9rem;
+  color: var(--fg);
+  white-space: nowrap;
 }}
 .sep {{ width: 1px; height: 2.5rem; background: var(--bar-border); margin: 0 0.25rem; }}
 #layout {{
@@ -390,18 +398,19 @@ body {{
 }}
 </style>
 </head>
-<body>
+<body class="dark">
 <div id="bar">
   <button id="btn-play" title="Play/Pause (Space)">&#9654;</button>
   <div class="sep"></div>
   <button id="btn-slower" title="Slower (-)">&#8722;</button>
-  <span id="speed-display">100%</span>
+  <span id="speed-display">{WPM} wpm</span>
   <button id="btn-faster" title="Faster (+)">+</button>
   <div class="sep"></div>
   <button id="btn-smaller" title="Smaller font ([)">A&#8722;</button>
   <button id="btn-larger" title="Larger font (])">A+</button>
   <div class="sep"></div>
   <button id="btn-dark" title="Toggle dark mode (d)">&#9790;</button>
+  <span id="time-remaining">—</span>
 </div>
 <div id="progress-bar"><div id="progress-fill" style="height:0%"></div></div>
 <div id="layout">
@@ -431,6 +440,7 @@ const btnLarger = document.getElementById('btn-larger');
 const btnSmaller = document.getElementById('btn-smaller');
 const btnDark = document.getElementById('btn-dark');
 const speedDisplay = document.getElementById('speed-display');
+const timeRemaining = document.getElementById('time-remaining');
 const progressFill = document.getElementById('progress-fill');
 const content = document.getElementById('content');
 
@@ -444,13 +454,25 @@ function basePixelsPerSecond() {{
 }}
 
 function updateSpeedDisplay() {{
-  speedDisplay.textContent = Math.round(speedMult * 100) + '%';
+  speedDisplay.textContent = Math.round(WPM * speedMult) + ' wpm';
+}}
+
+function formatTime(secs) {{
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return m + ':' + String(s).padStart(2, '0');
 }}
 
 function updateProgress() {{
   const sh = scrollableHeight();
   const pct = sh > 0 ? (window.scrollY / sh) * 100 : 0;
   progressFill.style.height = pct + '%';
+  if (sh > 0) {{
+    const remainingFraction = 1 - (window.scrollY / sh);
+    const totalSecs = (WORD_COUNT / (WPM * speedMult)) * 60;
+    const remSecs = totalSecs * remainingFraction;
+    timeRemaining.textContent = formatTime(remSecs) + ' remaining';
+  }}
 }}
 
 function scrollFrame(ts) {{
@@ -492,6 +514,7 @@ function togglePlay() {{ setPlaying(!playing); }}
 function changeSpeed(factor) {{
   speedMult = Math.max(0.25, Math.min(4.0, speedMult * factor));
   updateSpeedDisplay();
+  updateProgress();
 }}
 
 function positionSlides() {{

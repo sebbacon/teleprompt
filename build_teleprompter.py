@@ -392,6 +392,7 @@ body {{
   text-decoration: underline;
   text-decoration-style: dotted;
   text-decoration-color: var(--cue);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }}
 #content hr {{

@@ -80,6 +80,27 @@ class ContentExtractor(HTMLParser):
             self.out.append("<p>")
             self._para_open = True
 
+        elif tag == "hr":
+            if self._para_open:
+                self.out.append("</p>\n")
+                self._para_open = False
+            self.out.append("<hr>\n")
+
+        elif tag in ("ul", "ol"):
+            if self._para_open:
+                self.out.append("</p>\n")
+                self._para_open = False
+            self.out.append(f"<{tag}>\n")
+
+        elif tag == "li":
+            self.out.append("<li>")
+
+        elif tag == "sup":
+            self.out.append("<sup>")
+
+        elif tag == "a":
+            pass  # keep link text, drop the anchor
+
         elif tag == "span":
             if "c1" in classes:
                 self._bold_depth += 1
@@ -122,6 +143,18 @@ class ContentExtractor(HTMLParser):
             if self._para_open:
                 self.out.append("</p>\n")
                 self._para_open = False
+
+        elif tag in ("ul", "ol"):
+            self.out.append(f"</{tag}>\n")
+
+        elif tag == "li":
+            self.out.append("</li>\n")
+
+        elif tag == "sup":
+            self.out.append("</sup>")
+
+        elif tag == "a":
+            pass
 
         elif tag == "span":
             if self._bold_depth > 0:
@@ -166,9 +199,9 @@ class ContentExtractor(HTMLParser):
 
 def mark_stage_cues(html: str) -> str:
     """Wrap [stage cues] and <acting notes> in amber spans."""
-    # Match [bracketed] cues
+    # Match [bracketed] cues — min 3 chars to exclude footnote refs like [a], [1]
     html = re.sub(
-        r"(\[[^\[\]]{1,60}\])",
+        r"(\[[^\[\]]{3,60}\])",
         r'<span class="cue">\1</span>',
         html,
     )
@@ -266,7 +299,7 @@ body {{
 #content {{
   max-width: 900px;
   margin: 0 auto;
-  padding: 5rem 2rem 80vh;
+  padding: 50vh 2rem 50vh;
 }}
 #content p {{
   margin-bottom: 1.4em;
@@ -281,6 +314,22 @@ body {{
 }}
 #content strong {{
   font-weight: 700;
+}}
+#content hr {{
+  border: none;
+  border-top: 2px solid var(--bar-border);
+  margin: 2rem 0;
+}}
+#content ul, #content ol {{
+  margin: 0.5em 0 1.2em 2em;
+}}
+#content li {{
+  margin-bottom: 0.4em;
+}}
+#content sup {{
+  font-size: 0.6em;
+  vertical-align: super;
+  opacity: 0.6;
 }}
 .cue {{
   color: var(--cue);

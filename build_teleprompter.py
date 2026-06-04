@@ -388,10 +388,10 @@ body {{
   margin-bottom: 1.4em;
 }}
 #content strong {{
-  font-weight: 700;
+  font-weight: 400;
   text-decoration: underline;
   text-decoration-style: dotted;
-  text-decoration-color: var(--underline);
+  text-decoration-color: var(--cue);
   text-underline-offset: 3px;
 }}
 #content hr {{

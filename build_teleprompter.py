@@ -321,6 +321,20 @@ body {{
   color: var(--fg);
   white-space: nowrap;
 }}
+#time-info {{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}}
+#time-elapsed, #time-clock {{
+  font-variant-numeric: tabular-nums;
+  font-family: system-ui, sans-serif;
+  font-size: 1.4rem;
+  color: var(--fg);
+  opacity: 0.7;
+  white-space: nowrap;
+}}
 .sep {{ width: 1px; height: 2.5rem; background: var(--bar-border); margin: 0 0.25rem; }}
 #layout {{
   position: relative;
@@ -410,7 +424,11 @@ body {{
   <button id="btn-larger" title="Larger font (])">A+</button>
   <div class="sep"></div>
   <button id="btn-dark" title="Toggle dark mode (d)">&#9790;</button>
-  <span id="time-remaining">—</span>
+  <div id="time-info">
+    <span id="time-remaining">—</span>
+    <span id="time-elapsed">0:00 elapsed</span>
+    <span id="time-clock"></span>
+  </div>
 </div>
 <div id="progress-bar"><div id="progress-fill" style="height:0%"></div></div>
 <div id="layout">
@@ -443,8 +461,32 @@ const btnSmaller = document.getElementById('btn-smaller');
 const btnDark = document.getElementById('btn-dark');
 const speedDisplay = document.getElementById('speed-display');
 const timeRemaining = document.getElementById('time-remaining');
+const timeElapsed = document.getElementById('time-elapsed');
+const timeClock = document.getElementById('time-clock');
 const progressFill = document.getElementById('progress-fill');
 const content = document.getElementById('content');
+
+let elapsedSecs = 0;
+let elapsedRafId = null;
+let elapsedLastTs = null;
+
+function updateClock() {{
+  const now = new Date();
+  const h = now.getHours();
+  const m = String(now.getMinutes()).padStart(2, '0');
+  timeClock.textContent = h + ':' + m;
+  setTimeout(updateClock, (60 - now.getSeconds()) * 1000);
+}}
+
+function elapsedFrame(ts) {{
+  if (!playing) return;
+  if (elapsedLastTs !== null) {{
+    elapsedSecs += (ts - elapsedLastTs) / 1000;
+    timeElapsed.textContent = formatTime(elapsedSecs) + ' elapsed';
+  }}
+  elapsedLastTs = ts;
+  elapsedRafId = requestAnimationFrame(elapsedFrame);
+}}
 
 function saveSettings() {{
   localStorage.setItem(STORAGE_KEY, JSON.stringify({{
@@ -521,11 +563,16 @@ function setPlaying(val) {{
     lastTs = null;
     scrollAccum = 0;
     rafId = requestAnimationFrame(scrollFrame);
+    elapsedLastTs = null;
+    elapsedRafId = requestAnimationFrame(elapsedFrame);
   }} else {{
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
     lastTs = null;
     scrollAccum = 0;
+    if (elapsedRafId) cancelAnimationFrame(elapsedRafId);
+    elapsedRafId = null;
+    elapsedLastTs = null;
   }}
 }}
 
@@ -641,6 +688,7 @@ loadSettings();
 updateProgress();
 updateSpeedDisplay();
 positionSlides();
+updateClock();
 </script>
 </body>
 </html>"""

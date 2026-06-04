@@ -340,15 +340,27 @@ body {{
   position: relative;
   max-width: 1400px;
   margin: 0 auto;
-  padding-right: 320px;
+  display: flex;
 }}
 #content {{
+  flex: 1;
+  min-width: 0;
   padding: 50vh 2rem 50vh;
 }}
+#divider {{
+  width: 6px;
+  flex-shrink: 0;
+  background: var(--bar-border);
+  cursor: col-resize;
+  transition: background 0.15s;
+}}
+#divider:hover, #divider.active {{
+  background: var(--cue);
+}}
 #slide-rail {{
-  position: absolute;
-  top: 0; right: 0;
+  position: relative;
   width: 300px;
+  flex-shrink: 0;
 }}
 .slide-item {{
   position: absolute;
@@ -435,6 +447,7 @@ body {{
 <div id="content">
 {content_html}
 </div>
+<div id="divider"></div>
 <div id="slide-rail">
 {slides_html}
 </div>
@@ -469,6 +482,7 @@ const content = document.getElementById('content');
 let elapsedSecs = 0;
 let elapsedRafId = null;
 let elapsedLastTs = null;
+let railWidth = 300;
 
 function updateClock() {{
   const now = new Date();
@@ -488,10 +502,40 @@ function elapsedFrame(ts) {{
   elapsedRafId = requestAnimationFrame(elapsedFrame);
 }}
 
+function setRailWidth(w) {{
+  railWidth = Math.max(100, Math.min(800, Math.round(w)));
+  document.getElementById('slide-rail').style.width = railWidth + 'px';
+  positionSlides();
+}}
+
+const divider = document.getElementById('divider');
+divider.addEventListener('mousedown', (e) => {{
+  e.preventDefault();
+  divider.classList.add('active');
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'col-resize';
+  const startX = e.clientX;
+  const startWidth = railWidth;
+  function onMove(e) {{
+    setRailWidth(startWidth + (startX - e.clientX));
+  }}
+  function onUp() {{
+    divider.classList.remove('active');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    saveSettings();
+  }}
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}});
+
 function saveSettings() {{
   localStorage.setItem(STORAGE_KEY, JSON.stringify({{
     speedMult,
     fontSize,
+    railWidth,
     dark: document.body.classList.contains('dark'),
   }}));
 }}
@@ -501,6 +545,7 @@ function loadSettings() {{
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{{}}');
     if (s.speedMult) speedMult = s.speedMult;
     if (s.fontSize) fontSize = s.fontSize;
+    if (s.railWidth) setRailWidth(s.railWidth);
     if (s.dark !== undefined) document.body.classList.toggle('dark', s.dark);
     document.body.style.fontSize = fontSize + 'rem';
   }} catch(e) {{}}

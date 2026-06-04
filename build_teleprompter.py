@@ -255,6 +255,7 @@ def build_html(content_html: str, slides_html: str, word_count: int) -> str:
   --btn-fg: #111;
   --btn-hover: #d1d5db;
   --shadow: rgba(0,0,0,0.08);
+  --underline: rgba(0,0,0,0.75);
 }}
 body.dark {{
   --bg: #111;
@@ -266,6 +267,7 @@ body.dark {{
   --btn-fg: #e8e8e0;
   --btn-hover: #3a3a3a;
   --shadow: rgba(0,0,0,0.4);
+  --underline: rgba(255,255,255,0.85);
 }}
 *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 html {{ scroll-behavior: auto; }}
@@ -389,7 +391,7 @@ body {{
   font-weight: 700;
   text-decoration: underline;
   text-decoration-style: dotted;
-  text-decoration-color: rgba(128,128,128,0.5);
+  text-decoration-color: var(--underline);
   text-underline-offset: 3px;
 }}
 #content hr {{

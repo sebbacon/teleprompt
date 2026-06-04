@@ -272,7 +272,7 @@ html {{ scroll-behavior: auto; }}
 body {{
   background: var(--bg);
   color: var(--fg);
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   font-size: 2rem;
   line-height: 1.7;
   transition: background 0.2s, color 0.2s;

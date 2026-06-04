@@ -275,7 +275,7 @@ body {{
   background: var(--bg);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-size: 2rem;
+  font-size: 2.8rem;
   line-height: 1.7;
   transition: background 0.2s, color 0.2s;
 }}
@@ -481,7 +481,7 @@ const STORAGE_KEY = 'teleprompter_settings';
 
 let playing = false;
 let speedMult = 1.0;
-let fontSize = 2.0; // rem
+let fontSize = 2.8; // rem
 let rafId = null;
 let lastTs = null;
 let resumeTimer = null;

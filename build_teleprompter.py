@@ -50,6 +50,8 @@ class ContentExtractor(HTMLParser):
         super().__init__(convert_charrefs=False)
         self.zf = zf
         self.out: list[str] = []
+        self._slides: list[str] = []
+        self._slide_count = 0
         self._in_body = False
         self._bold_depth = 0
         self._skip_depth = 0  # depth of tags we're ignoring
@@ -122,7 +124,10 @@ class ContentExtractor(HTMLParser):
                     w = MAX_IMG_WIDTH
                     h = h * scale
                 dim = f'width="{int(w)}"' + (f' height="{int(h)}"' if h else "")
-                self.out.append(f'<img {dim} src="{data_uri}">')
+                sid = self._slide_count
+                self._slides.append(f'<div class="slide-item" data-slide-id="{sid}"><img {dim} src="{data_uri}"></div>')
+                self.out.append(f'<span class="slide-marker" data-slide-id="{sid}">&#9655;</span>')
+                self._slide_count += 1
 
         elif tag == "br":
             self.out.append("<br>")
@@ -193,8 +198,8 @@ class ContentExtractor(HTMLParser):
         else:
             self.out.append(chr(int(name)))
 
-    def get_html(self) -> str:
-        return "".join(self.out)
+    def get_html(self) -> tuple[str, str]:
+        return "".join(self.out), "".join(self._slides)
 
 
 def mark_stage_cues(html: str) -> str:
@@ -219,7 +224,7 @@ def count_words(html: str) -> int:
     return len(text.split())
 
 
-def build_html(content_html: str, word_count: int) -> str:
+def build_html(content_html: str, slides_html: str, word_count: int) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -296,21 +301,41 @@ body {{
   color: var(--fg);
 }}
 .sep {{ width: 1px; height: 1.5rem; background: var(--bar-border); margin: 0 0.25rem; }}
-#content {{
-  max-width: 900px;
+#layout {{
+  position: relative;
+  max-width: 1400px;
   margin: 0 auto;
+  padding-right: 320px;
+}}
+#content {{
   padding: 50vh 2rem 50vh;
 }}
-#content p {{
-  margin-bottom: 1.4em;
+#slide-rail {{
+  position: absolute;
+  top: 0; right: 0;
+  width: 300px;
 }}
-#content img {{
+.slide-item {{
+  position: absolute;
+  width: 100%;
+}}
+.slide-item img {{
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 1rem 0;
   border-radius: 4px;
   box-shadow: 0 2px 8px var(--shadow);
+}}
+.slide-marker {{
+  color: var(--cue);
+  font-family: system-ui, sans-serif;
+  font-size: 0.75em;
+  font-weight: 700;
+  user-select: none;
+  vertical-align: middle;
+}}
+#content p {{
+  margin-bottom: 1.4em;
 }}
 #content strong {{
   font-weight: 700;
@@ -366,8 +391,13 @@ body {{
   <button id="btn-dark" title="Toggle dark mode (d)">&#9790;</button>
 </div>
 <div id="progress-bar"><div id="progress-fill" style="height:0%"></div></div>
+<div id="layout">
 <div id="content">
 {content_html}
+</div>
+<div id="slide-rail">
+{slides_html}
+</div>
 </div>
 <script>
 const WORD_COUNT = {word_count};
@@ -451,15 +481,28 @@ function changeSpeed(factor) {{
   updateSpeedDisplay();
 }}
 
+function positionSlides() {{
+  const layout = document.getElementById('layout');
+  const layoutTop = layout.getBoundingClientRect().top + window.scrollY;
+  document.querySelectorAll('.slide-marker').forEach(marker => {{
+    const id = marker.dataset.slideId;
+    const item = document.querySelector(`.slide-item[data-slide-id="${{id}}"]`);
+    if (!item) return;
+    const markerTop = marker.getBoundingClientRect().top + window.scrollY;
+    item.style.top = (markerTop - layoutTop) + 'px';
+  }});
+}}
+
 function changeFontSize(delta) {{
   const sh = scrollableHeight();
   const fraction = sh > 0 ? window.scrollY / sh : 0;
   fontSize = Math.max(0.8, Math.min(5, fontSize + delta));
   document.body.style.fontSize = fontSize + 'rem';
-  // Restore scroll position after layout reflow
+  // Restore scroll position after layout reflow, then reposition slides
   requestAnimationFrame(() => {{
     const newSh = scrollableHeight();
     window.scrollTo(0, fraction * newSh);
+    positionSlides();
   }});
 }}
 
@@ -534,8 +577,11 @@ document.addEventListener('keydown', (e) => {{
 }});
 
 window.addEventListener('scroll', updateProgress, {{ passive: true }});
+window.addEventListener('load', positionSlides);
+window.addEventListener('resize', positionSlides);
 updateProgress();
 updateSpeedDisplay();
+positionSlides();
 </script>
 </body>
 </html>"""
@@ -551,14 +597,14 @@ def main():
         extractor = ContentExtractor(zf)
         print("  Extracting and embedding images (this may take a moment) ...")
         extractor.feed(raw)
-        content_html = extractor.get_html()
+        content_html, slides_html = extractor.get_html()
 
     content_html = mark_stage_cues(content_html)
     word_count = count_words(content_html)
     print(f"  Word count: {word_count} (~{word_count/WPM:.0f} min at {WPM} wpm)")
 
     print(f"Writing {OUT_PATH} ...")
-    page = build_html(content_html, word_count)
+    page = build_html(content_html, slides_html, word_count)
     OUT_PATH.write_text(page, encoding="utf-8")
     size_mb = OUT_PATH.stat().st_size / 1_048_576
     print(f"Done. {OUT_PATH.name} is {size_mb:.1f} MB")

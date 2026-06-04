@@ -10,7 +10,7 @@ from pathlib import Path
 
 ZIP_PATH = Path(__file__).parent / "presentation.zip"
 OUT_PATH = Path(__file__).parent / "teleprompter.html"
-WPM = 135
+WPM = 138
 MAX_IMG_WIDTH = 300
 
 

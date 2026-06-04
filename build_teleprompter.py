@@ -425,6 +425,8 @@ body {{
 const WORD_COUNT = {word_count};
 const WPM = {WPM};
 
+const STORAGE_KEY = 'teleprompter_settings';
+
 let playing = false;
 let speedMult = 1.0;
 let fontSize = 2.0; // rem
@@ -443,6 +445,24 @@ const speedDisplay = document.getElementById('speed-display');
 const timeRemaining = document.getElementById('time-remaining');
 const progressFill = document.getElementById('progress-fill');
 const content = document.getElementById('content');
+
+function saveSettings() {{
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({{
+    speedMult,
+    fontSize,
+    dark: document.body.classList.contains('dark'),
+  }}));
+}}
+
+function loadSettings() {{
+  try {{
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{{}}');
+    if (s.speedMult) speedMult = s.speedMult;
+    if (s.fontSize) fontSize = s.fontSize;
+    if (s.dark !== undefined) document.body.classList.toggle('dark', s.dark);
+    document.body.style.fontSize = fontSize + 'rem';
+  }} catch(e) {{}}
+}}
 
 function scrollableHeight() {{
   return document.documentElement.scrollHeight - window.innerHeight;
@@ -515,6 +535,7 @@ function changeSpeed(factor) {{
   speedMult = Math.max(0.25, Math.min(4.0, speedMult * factor));
   updateSpeedDisplay();
   updateProgress();
+  saveSettings();
 }}
 
 function positionSlides() {{
@@ -534,7 +555,7 @@ function changeFontSize(delta) {{
   const fraction = sh > 0 ? window.scrollY / sh : 0;
   fontSize = Math.max(0.8, Math.min(5, fontSize + delta));
   document.body.style.fontSize = fontSize + 'rem';
-  // Restore scroll position after layout reflow, then reposition slides
+  saveSettings();
   requestAnimationFrame(() => {{
     const newSh = scrollableHeight();
     window.scrollTo(0, fraction * newSh);
@@ -574,7 +595,7 @@ btnFaster.addEventListener('click', () => changeSpeed(1.1));
 btnSlower.addEventListener('click', () => changeSpeed(0.9));
 btnLarger.addEventListener('click', () => changeFontSize(0.2));
 btnSmaller.addEventListener('click', () => changeFontSize(-0.2));
-btnDark.addEventListener('click', () => document.body.classList.toggle('dark'));
+btnDark.addEventListener('click', () => {{ document.body.classList.toggle('dark'); saveSettings(); }});
 content.addEventListener('click', jumpToClick);
 
 document.addEventListener('keydown', (e) => {{
@@ -608,6 +629,7 @@ document.addEventListener('keydown', (e) => {{
     case 'd':
     case 'D':
       document.body.classList.toggle('dark');
+      saveSettings();
       break;
   }}
 }});
@@ -615,6 +637,7 @@ document.addEventListener('keydown', (e) => {{
 window.addEventListener('scroll', updateProgress, {{ passive: true }});
 window.addEventListener('load', positionSlides);
 window.addEventListener('resize', positionSlides);
+loadSettings();
 updateProgress();
 updateSpeedDisplay();
 positionSlides();

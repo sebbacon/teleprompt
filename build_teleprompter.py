@@ -581,6 +581,7 @@ function updateProgress() {{
     const remSecs = totalSecs * remainingFraction;
     timeRemaining.textContent = formatTime(remSecs) + ' remaining';
   }}
+  updateStickySlide();
 }}
 
 function scrollFrame(ts) {{
@@ -640,8 +641,30 @@ function positionSlides() {{
     const item = document.querySelector(`.slide-item[data-slide-id="${{id}}"]`);
     if (!item) return;
     const markerTop = marker.getBoundingClientRect().top + window.scrollY;
-    item.style.top = (markerTop - layoutTop) + 'px';
+    const naturalTop = markerTop - layoutTop;
+    item.dataset.naturalTop = naturalTop;
+    item.style.top = naturalTop + 'px';
   }});
+  updateStickySlide();
+}}
+
+function updateStickySlide() {{
+  const bar = document.getElementById('bar');
+  const slideRail = document.getElementById('slide-rail');
+  const barBottom = bar.getBoundingClientRect().bottom;
+  const railPageTop = slideRail.getBoundingClientRect().top + window.scrollY;
+  const stickyTop = window.scrollY + barBottom + 8 - railPageTop;
+
+  const items = [...document.querySelectorAll('.slide-item')];
+  let currentItem = null;
+  for (const item of items) {{
+    const nat = parseFloat(item.dataset.naturalTop);
+    if (!isNaN(nat) && nat < stickyTop) currentItem = item;
+  }}
+  for (const item of items) {{
+    const nat = parseFloat(item.dataset.naturalTop);
+    item.style.top = (item === currentItem ? stickyTop : nat) + 'px';
+  }}
 }}
 
 function changeFontSize(delta) {{

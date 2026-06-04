@@ -387,6 +387,10 @@ body {{
 }}
 #content strong {{
   font-weight: 700;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(128,128,128,0.5);
+  text-underline-offset: 3px;
 }}
 #content hr {{
   border: none;

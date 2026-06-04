@@ -423,6 +423,18 @@ body {{
   background: var(--cue);
   transition: height 0.3s;
 }}
+#center-line {{
+  position: fixed;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 6.8em;
+  background: rgba(128,128,128,0.4);
+  border-radius: 2px;
+  z-index: 90;
+  pointer-events: none;
+}}
 </style>
 </head>
 <body class="dark">
@@ -443,6 +455,7 @@ body {{
     <span id="time-clock"></span>
   </div>
 </div>
+<div id="center-line"></div>
 <div id="progress-bar"><div id="progress-fill" style="height:0%"></div></div>
 <div id="layout">
 <div id="content">

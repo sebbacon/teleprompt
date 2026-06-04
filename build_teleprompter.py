@@ -43,17 +43,28 @@ def img_to_data_uri(zf: zipfile.ZipFile, src: str) -> str:
         return src
 
 
+def extract_bold_classes(html: str) -> set[str]:
+    """Return the set of CSS class names that apply font-weight:700."""
+    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
+    if not style_match:
+        return set()
+    style = style_match.group(1)
+    names = re.findall(r'\.(c\d+)\{[^}]*font-weight\s*:\s*700[^}]*\}', style)
+    return set(names)
+
+
 class ContentExtractor(HTMLParser):
     """Parse Google Docs HTML into clean teleprompter content."""
 
-    def __init__(self, zf: zipfile.ZipFile):
+    def __init__(self, zf: zipfile.ZipFile, bold_classes: set[str]):
         super().__init__(convert_charrefs=False)
         self.zf = zf
+        self._bold_classes = bold_classes
         self.out: list[str] = []
         self._slides: list[str] = []
         self._slide_count = 0
         self._in_body = False
-        self._bold_depth = 0
+        self._span_stack: list[bool] = []  # tracks whether each open span is bold
         self._skip_depth = 0  # depth of tags we're ignoring
         self._skip_stack: list[str] = []
         self._para_open = False
@@ -104,8 +115,9 @@ class ContentExtractor(HTMLParser):
             pass  # keep link text, drop the anchor
 
         elif tag == "span":
-            if "c1" in classes:
-                self._bold_depth += 1
+            is_bold = bool(self._bold_classes & set(classes))
+            self._span_stack.append(is_bold)
+            if is_bold:
                 self.out.append("<strong>")
 
         elif tag == "img":
@@ -162,9 +174,10 @@ class ContentExtractor(HTMLParser):
             pass
 
         elif tag == "span":
-            if self._bold_depth > 0:
-                self._bold_depth -= 1
-                self.out.append("</strong>")
+            if self._span_stack:
+                was_bold = self._span_stack.pop()
+                if was_bold:
+                    self.out.append("</strong>")
 
         elif tag == "body":
             if self._para_open:
@@ -270,37 +283,37 @@ body {{
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
   background: var(--bar-bg);
   border-bottom: 1px solid var(--bar-border);
   box-shadow: 0 2px 6px var(--shadow);
   font-family: system-ui, sans-serif;
-  font-size: 1rem;
+  font-size: 2rem;
 }}
 #bar button {{
   background: var(--btn-bg);
   color: var(--btn-fg);
   border: 1px solid var(--bar-border);
-  border-radius: 6px;
-  padding: 0.3rem 0.7rem;
+  border-radius: 8px;
+  padding: 0.4rem 1rem;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 2rem;
   line-height: 1;
   transition: background 0.15s;
   white-space: nowrap;
 }}
 #bar button:hover {{ background: var(--btn-hover); }}
-#bar button#btn-play {{ font-size: 1.3rem; padding: 0.2rem 0.6rem; }}
+#bar button#btn-play {{ font-size: 2.6rem; padding: 0.2rem 0.8rem; }}
 #speed-display {{
   font-variant-numeric: tabular-nums;
   min-width: 4ch;
   text-align: center;
   font-family: system-ui, sans-serif;
-  font-size: 0.95rem;
+  font-size: 1.9rem;
   color: var(--fg);
 }}
-.sep {{ width: 1px; height: 1.5rem; background: var(--bar-border); margin: 0 0.25rem; }}
+.sep {{ width: 1px; height: 2.5rem; background: var(--bar-border); margin: 0 0.25rem; }}
 #layout {{
   position: relative;
   max-width: 1400px;
@@ -594,7 +607,9 @@ def main():
         print(f"  Parsing {html_name} ...")
         raw = zf.read(html_name).decode("utf-8")
 
-        extractor = ContentExtractor(zf)
+        bold_classes = extract_bold_classes(raw)
+        print(f"  Bold classes detected: {bold_classes}")
+        extractor = ContentExtractor(zf, bold_classes)
         print("  Extracting and embedding images (this may take a moment) ...")
         extractor.feed(raw)
         content_html, slides_html = extractor.get_html()

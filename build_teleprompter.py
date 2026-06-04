@@ -623,8 +623,9 @@ function setPlaying(val) {{
 
 function togglePlay() {{ setPlaying(!playing); }}
 
-function changeSpeed(factor) {{
-  speedMult = Math.max(0.25, Math.min(4.0, speedMult * factor));
+function changeSpeed(delta) {{
+  const newWpm = Math.max(10, Math.min(600, Math.round(WPM * speedMult) + delta));
+  speedMult = newWpm / WPM;
   updateSpeedDisplay();
   updateProgress();
   saveSettings();
@@ -683,8 +684,8 @@ function jumpToClick(e) {{
 
 // Controls
 btnPlay.addEventListener('click', togglePlay);
-btnFaster.addEventListener('click', () => changeSpeed(1.1));
-btnSlower.addEventListener('click', () => changeSpeed(0.9));
+btnFaster.addEventListener('click', () => changeSpeed(1));
+btnSlower.addEventListener('click', () => changeSpeed(-1));
 btnLarger.addEventListener('click', () => changeFontSize(0.2));
 btnSmaller.addEventListener('click', () => changeFontSize(-0.2));
 btnDark.addEventListener('click', () => {{ document.body.classList.toggle('dark'); saveSettings(); }});
@@ -707,10 +708,10 @@ document.addEventListener('keydown', (e) => {{
       break;
     case '+':
     case '=':
-      changeSpeed(1.1);
+      changeSpeed(1);
       break;
     case '-':
-      changeSpeed(0.9);
+      changeSpeed(-1);
       break;
     case ']':
       changeFontSize(0.2);

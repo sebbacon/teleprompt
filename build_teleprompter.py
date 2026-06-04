@@ -368,7 +368,7 @@ body {{
 }}
 .slide-item img {{
   display: block;
-  max-width: 100%;
+  width: 100%;
   height: auto;
   border-radius: 4px;
   box-shadow: 0 2px 8px var(--shadow);

@@ -372,6 +372,7 @@ body {{
   height: auto;
   border-radius: 4px;
   box-shadow: 0 2px 8px var(--shadow);
+  filter: brightness(0.7) saturate(0.5);
 }}
 .slide-marker {{
   color: var(--cue);

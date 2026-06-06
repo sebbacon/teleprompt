@@ -2,15 +2,33 @@
 
 A self-contained, single-file teleprompter built from a Google Docs presentation export.
 
+## Installation
+
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+uv sync
+```
+
 ## Building
 
 ```bash
-python build_teleprompter.py
+just build
+# or: uv run python build_teleprompter.py
 ```
 
 This reads `presentation.zip` (a Google Docs `.zip` export) and writes `teleprompter.html`. Install [Pillow](https://pillow.readthedocs.io/) for image resizing; without it images are embedded at full size.
 
 Open `teleprompter.html` in any browser — no server needed.
+
+## Voice tracking
+
+```bash
+just serve
+# or: uv run python build_teleprompter.py serve
+```
+
+Starts a local server that listens to your microphone and scrolls the teleprompter to follow your speech in real time. Open `http://localhost:8080/teleprompter.html` in your browser. The 🎤 button in the toolbar shows a green dot when connected; click it or press `v` to toggle. The Whisper `tiny.en` model (~39 MB) is downloaded automatically on first run.
 
 ## Source format
 
@@ -33,6 +51,7 @@ Export your script from Google Docs as **File → Download → Web Page (.html, 
 | Scroll up | `↑` | — |
 | Scroll down | `↓` | — |
 | Toggle dark/light | `d` | ☾ |
+| Toggle voice tracking | `v` | 🎤 |
 
 Click any paragraph to jump to it (playback resumes automatically after a short pause).
 

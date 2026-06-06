@@ -2,9 +2,12 @@
 """Build a self-contained teleprompter.html from presentation.zip."""
 
 import base64
+import difflib
 import io
+import json
 import re
 import zipfile
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -237,7 +240,41 @@ def count_words(html: str) -> int:
     return len(text.split())
 
 
-def build_html(content_html: str, slides_html: str, word_count: int) -> str:
+def _spoken_text(html: str) -> str:
+    """Strip stage cues and tags, decode entities — leaves only spoken words."""
+    text = re.sub(r'<span class="cue">.*?</span>', " ", html, flags=re.DOTALL)
+    return unescape(re.sub(r"<[^>]+>", " ", text))
+
+
+def extract_script_words(html: str) -> list[str]:
+    """Normalized spoken-word list from <p> paragraphs only (cues excluded)."""
+    words: list[str] = []
+    for m in re.finditer(r"<p>(.*?)</p>", html, re.DOTALL):
+        words.extend(re.sub(r"[^a-z0-9 ]", "", _spoken_text(m.group(1)).lower()).split())
+    return words
+
+
+def annotate_paragraphs(html: str) -> tuple[str, list[list[int]]]:
+    """Add data-ws/data-we word-index attributes to each <p> (cues excluded from counts)."""
+    word_idx = 0
+    para_map: list[list[int]] = []
+
+    def replacer(m: re.Match) -> str:
+        nonlocal word_idx
+        inner = m.group(1)
+        n = len(re.sub(r"[^a-z0-9 ]", "", _spoken_text(inner).lower()).split())
+        start, end = word_idx, word_idx + n
+        word_idx = end
+        para_map.append([start, end])
+        return f'<p data-ws="{start}" data-we="{end}">{inner}</p>'
+
+    annotated = re.sub(r"<p>(.*?)</p>", replacer, html, flags=re.DOTALL)
+    return annotated, para_map
+
+
+def build_html(content_html: str, slides_html: str, word_count: int, script_words: list, para_map: list) -> str:
+    script_words_json = json.dumps(script_words)
+    para_map_json = json.dumps(para_map)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -442,6 +479,42 @@ body {{
   z-index: 90;
   pointer-events: none;
 }}
+#content p.voice-current {{
+  background: rgba(251, 191, 36, 0.07);
+  border-left: 3px solid var(--cue);
+  padding-left: 0.6em;
+  border-radius: 0 4px 4px 0;
+  transition: background 0.8s;
+  margin-left: -0.9em;
+}}
+#voice-overlay {{
+  position: fixed;
+  bottom: 1.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: system-ui, sans-serif;
+  font-size: 1rem;
+  color: var(--fg);
+  opacity: 0;
+  max-width: 60vw;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 200;
+  transition: opacity 0.4s;
+}}
+#voice-overlay.active {{ opacity: 0.55; }}
+#btn-voice {{ position: relative; }}
+#btn-voice.connected::after {{
+  content: '';
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+}}
 </style>
 </head>
 <body class="dark">
@@ -456,6 +529,8 @@ body {{
   <button id="btn-larger" title="Larger font (])">A+</button>
   <div class="sep"></div>
   <button id="btn-dark" title="Toggle dark mode (d)">&#9790;</button>
+  <div class="sep"></div>
+  <button id="btn-voice" title="Voice tracking (v): when the green dot is showing, scroll follows your speech automatically">&#127908;</button>
   <div id="time-info">
     <span id="time-remaining">—</span>
     <span id="time-elapsed">0:00 elapsed</span>
@@ -473,9 +548,12 @@ body {{
 {slides_html}
 </div>
 </div>
+<div id="voice-overlay"></div>
 <script>
 const WORD_COUNT = {word_count};
 const WPM = {WPM};
+const SCRIPT_WORDS = {script_words_json};
+const PARA_MAP = {para_map_json};
 
 const STORAGE_KEY = 'teleprompter_settings';
 
@@ -608,14 +686,30 @@ function scrollFrame(ts) {{
   if (!playing) return;
   if (lastTs !== null) {{
     const dt = (ts - lastTs) / 1000;
-    scrollAccum += basePixelsPerSecond() * speedMult * dt;
-    if (scrollAccum >= 1) {{
-      const toScroll = Math.floor(scrollAccum);
-      window.scrollBy(0, toScroll);
-      scrollAccum -= toScroll;
-      updateProgress();
-      if (window.scrollY >= scrollableHeight() - 1) {{
-        setPlaying(false);
+    const voiceConnected = voiceEnabled && voiceWs && voiceWs.readyState === 1;
+    const voiceHolding = voiceConnected && lastVoiceMatchedPara && (Date.now() - lastVoiceTime) > 2500;
+    if (!voiceHolding) {{
+      scrollAccum += basePixelsPerSecond() * speedMult * dt;
+      if (scrollAccum >= 1) {{
+        const toScroll = Math.floor(scrollAccum);
+        window.scrollBy(0, toScroll);
+        scrollAccum -= toScroll;
+        updateProgress();
+        if (window.scrollY >= scrollableHeight() - 1) setPlaying(false);
+      }}
+    }} else {{
+      const rect = lastVoiceMatchedPara.getBoundingClientRect();
+      if (rect.bottom < 40) {{
+        voiceAdjustTarget = window.scrollY + rect.top - window.innerHeight * 0.35;
+      }}
+    }}
+    if (voiceAdjustTarget !== null) {{
+      const diff = voiceAdjustTarget - window.scrollY;
+      if (Math.abs(diff) < 5) {{
+        voiceAdjustTarget = null;
+      }} else {{
+        window.scrollBy(0, Math.sign(diff) * Math.min(Math.abs(diff) * 0.8, 150) * dt);
+        updateProgress();
       }}
     }}
   }}
@@ -637,6 +731,7 @@ function setPlaying(val) {{
     rafId = null;
     lastTs = null;
     scrollAccum = 0;
+    voiceAdjustTarget = null;
     if (elapsedRafId) cancelAnimationFrame(elapsedRafId);
     elapsedRafId = null;
     elapsedLastTs = null;
@@ -724,6 +819,16 @@ function jumpToClick(e) {{
   if (wasPlaying) {{
     resumeTimer = setTimeout(() => setPlaying(true), 1200);
   }}
+  if (target.dataset.ws !== undefined && voiceEnabled && voiceWs && voiceWs.readyState === 1) {{
+    const wordIdx = +target.dataset.ws;
+    voiceHistory = [];
+    voiceAdjustTarget = null;
+    lastVoiceMatchedPara = target;
+    lastVoiceTime = Date.now();
+    document.querySelectorAll('#content p.voice-current').forEach(p => p.classList.remove('voice-current'));
+    target.classList.add('voice-current');
+    voiceWs.send(JSON.stringify({{type: 'seek', word_idx: wordIdx}}));
+  }}
 }}
 
 // Controls
@@ -768,12 +873,112 @@ document.addEventListener('keydown', (e) => {{
       document.body.classList.toggle('dark');
       saveSettings();
       break;
+    case 'v':
+    case 'V':
+      btnVoice.click();
+      break;
   }}
 }});
 
 window.addEventListener('scroll', updateProgress, {{ passive: true }});
 window.addEventListener('load', positionSlides);
 window.addEventListener('resize', positionSlides);
+
+let voiceEnabled = true;
+let voiceWs = null;
+const btnVoice = document.getElementById('btn-voice');
+const voiceOverlay = document.getElementById('voice-overlay');
+let voiceAdjustTarget = null;
+let voiceHistory = [];
+let voiceWpmEMA = WPM;
+let lastVoiceTime = 0;
+let lastVoiceMatchedPara = null;
+
+function updateVoiceWpm(wordIdx) {{
+  if (!playing || !voiceEnabled) return;
+  const now = Date.now();
+  voiceHistory.push({{t: now, w: wordIdx}});
+  if (voiceHistory.length > 12) voiceHistory.shift();
+  if (voiceHistory.length < 3) return;
+  const newest = voiceHistory[voiceHistory.length - 1];
+  const oldest = voiceHistory[0];
+  const dtMs = newest.t - oldest.t;
+  const dw = newest.w - oldest.w;
+  if (dtMs < 8000 || dw <= 0) return;
+  const measuredWpm = (dw / dtMs) * 60000;
+  voiceWpmEMA = voiceWpmEMA * 0.75 + measuredWpm * 0.25;
+  const targetMult = Math.max(0.4, Math.min(3.0, voiceWpmEMA / WPM));
+  speedMult = speedMult * 0.9 + targetMult * 0.1;
+  updateSpeedDisplay();
+}}
+
+function applyVoicePosition(fraction) {{
+  if (!voiceEnabled) return;
+  const wordIdx = Math.round(fraction * SCRIPT_WORDS.length);
+  const paras = document.querySelectorAll('#content p[data-ws]');
+  let matched = null;
+  paras.forEach(p => {{
+    const ws = +p.dataset.ws, we = +p.dataset.we;
+    if (wordIdx >= ws && wordIdx < we) matched = p;
+  }});
+  document.querySelectorAll('#content p.voice-current').forEach(p => p.classList.remove('voice-current'));
+  if (matched) {{
+    matched.classList.add('voice-current');
+    lastVoiceMatchedPara = matched;
+    lastVoiceTime = Date.now();
+    updateVoiceWpm(wordIdx);
+    if (playing) {{
+      const rect = matched.getBoundingClientRect();
+      const offset = (rect.top + rect.height / 2) - window.innerHeight * 0.5;
+      if (offset > 80) {{
+        voiceAdjustTarget = window.scrollY + offset;  // ahead of scroll — advance
+      }} else if (rect.bottom < 40) {{
+        voiceAdjustTarget = window.scrollY + rect.top - window.innerHeight * 0.35;  // scrolled off top — bring back
+      }}
+    }} else {{
+      const rect = matched.getBoundingClientRect();
+      window.scrollTo({{top: rect.top + window.scrollY - window.innerHeight * 0.35, behavior: 'smooth'}});
+      updateProgress();
+    }}
+  }}
+}}
+
+function connectVoiceWs() {{
+  if (!voiceEnabled) return;
+  voiceWs = new WebSocket('ws://localhost:8765');
+  voiceWs.onmessage = (e) => {{
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'position') applyVoicePosition(msg.fraction);
+    if (msg.type === 'transcript') {{
+      voiceOverlay.textContent = msg.text;
+      voiceOverlay.classList.add('active');
+    }}
+  }};
+  voiceWs.onopen = () => btnVoice.classList.add('connected');
+  voiceWs.onclose = () => {{
+    btnVoice.classList.remove('connected');
+    if (voiceEnabled) setTimeout(connectVoiceWs, 3000);
+  }};
+  voiceWs.onerror = () => voiceWs.close();
+}}
+
+btnVoice.addEventListener('click', () => {{
+  voiceEnabled = !voiceEnabled;
+  btnVoice.style.opacity = voiceEnabled ? '1' : '0.4';
+  if (!voiceEnabled) {{
+    if (voiceWs) voiceWs.close();
+    document.querySelectorAll('#content p.voice-current').forEach(p => p.classList.remove('voice-current'));
+    voiceHistory = [];
+    voiceAdjustTarget = null;
+    lastVoiceMatchedPara = null;
+    lastVoiceTime = 0;
+  }} else {{
+    connectVoiceWs();
+  }}
+}});
+
+connectVoiceWs();
+
 loadSettings();
 updateProgress();
 updateSpeedDisplay();
@@ -799,15 +1004,173 @@ def main():
         content_html, slides_html = extractor.get_html()
 
     content_html = mark_stage_cues(content_html)
+    script_words = extract_script_words(content_html)
+    content_html, para_map = annotate_paragraphs(content_html)
     word_count = count_words(content_html)
     print(f"  Word count: {word_count} (~{word_count/WPM:.0f} min at {WPM} wpm)")
 
     print(f"Writing {OUT_PATH} ...")
-    page = build_html(content_html, slides_html, word_count)
+    page = build_html(content_html, slides_html, word_count, script_words, para_map)
     OUT_PATH.write_text(page, encoding="utf-8")
     size_mb = OUT_PATH.stat().st_size / 1_048_576
     print(f"Done. {OUT_PATH.name} is {size_mb:.1f} MB")
 
 
+def normalize_words(text: str) -> list[str]:
+    return re.sub(r"[^a-z0-9 ]", "", text.lower()).split()
+
+
+class PositionTracker:
+    def __init__(self, script_words: list[str]) -> None:
+        self.words = normalize_words(" ".join(script_words))
+        self.pos = 0
+        self.buffer: list[str] = []
+
+    def update(self, transcript: str) -> float | None:
+        new_words = normalize_words(transcript)
+        self.buffer = (self.buffer + new_words)[-12:]
+        if not self.buffer:
+            return None
+        query = " ".join(self.buffer)
+        n = len(self.buffer)
+        best_ratio, best_pos = 0.0, None
+        lo = max(0, self.pos - 10)
+        hi = min(self.pos + 60, len(self.words))
+        for i in range(lo, hi):
+            window = " ".join(self.words[i : i + n])
+            r = difflib.SequenceMatcher(None, query, window, autojunk=False).ratio()
+            if r > best_ratio:
+                best_ratio, best_pos = r, i
+        if best_ratio > 0.55 and best_pos is not None:
+            self.pos = best_pos + n
+            return self.pos / max(len(self.words), 1)
+        return None
+
+
+def audio_capture_loop(audio_queue: "queue.Queue") -> None:
+    try:
+        import sounddevice as sd
+    except ImportError:
+        print("ERROR: sounddevice not installed. Run: pip install sounddevice")
+        return
+    import numpy as np
+    sample_rate = 16000
+    chunk_frames = int(sample_rate * 2.0)
+    with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
+        while True:
+            data, _ = stream.read(chunk_frames)
+            audio_queue.put(data[:, 0])
+
+
+def transcription_loop(audio_queue: "queue.Queue", transcript_queue: "queue.Queue", model_size: str = "tiny.en") -> None:
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        print("ERROR: faster-whisper not installed. Run: pip install faster-whisper")
+        return
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    print(f"Whisper model '{model_size}' loaded.")
+    while True:
+        chunk = audio_queue.get()
+        segments, _ = model.transcribe(chunk, language="en", vad_filter=True)
+        for seg in segments:
+            if seg.avg_logprob > -0.8 and seg.text.strip():
+                transcript_queue.put(seg.text.strip())
+
+
+def serve_cmd(html_path: str = str(OUT_PATH)) -> None:
+    import asyncio
+    import os
+    import queue
+    import threading
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+    try:
+        import websockets
+    except ImportError:
+        print("ERROR: websockets not installed. Run: pip install websockets")
+        return
+
+    path = Path(html_path)
+    if not path.exists():
+        print(f"ERROR: {html_path} not found. Run: python build_teleprompter.py")
+        return
+
+    html = path.read_text(encoding="utf-8")
+    m = re.search(r"const SCRIPT_WORDS = (\[.*?\]);", html, re.DOTALL)
+    if not m:
+        print("ERROR: SCRIPT_WORDS not found. Rebuild: python build_teleprompter.py")
+        return
+
+    script_words = json.loads(m.group(1))
+    print(f"Loaded {len(script_words)} script words.")
+
+    tracker = PositionTracker(script_words)
+    audio_q: queue.Queue = queue.Queue()
+    transcript_q: queue.Queue = queue.Queue()
+
+    threading.Thread(target=audio_capture_loop, args=(audio_q,), daemon=True).start()
+    threading.Thread(target=transcription_loop, args=(audio_q, transcript_q), daemon=True).start()
+
+    os.chdir(path.parent)
+    http_port, ws_port = 8080, 8765
+
+    class QuietHandler(SimpleHTTPRequestHandler):
+        def log_message(self, *a: object) -> None:
+            pass
+
+    http = HTTPServer(("", http_port), QuietHandler)
+    threading.Thread(target=http.serve_forever, daemon=True).start()
+    print(f"Open http://localhost:{http_port}/{path.name}")
+    print("Listening for speech... Ctrl+C to stop.")
+
+    async def run() -> None:
+        connected: set = set()
+
+        async def ws_handler(websocket: object) -> None:
+            connected.add(websocket)
+            try:
+                async for message in websocket:
+                    try:
+                        data = json.loads(message)
+                        if data.get("type") == "seek":
+                            tracker.pos = int(data["word_idx"])
+                            tracker.buffer = []
+                    except Exception:
+                        pass
+            finally:
+                connected.discard(websocket)
+
+        loop = asyncio.get_running_loop()
+
+        async def broadcast() -> None:
+            while True:
+                text = await loop.run_in_executor(None, transcript_q.get)
+                fraction = tracker.update(text)
+                msgs = [json.dumps({"type": "transcript", "text": text})]
+                if fraction is not None:
+                    msgs.append(json.dumps({"type": "position", "fraction": fraction}))
+                ws_list = list(connected)
+                if ws_list:
+                    for msg in msgs:
+                        await asyncio.gather(
+                            *[ws.send(msg) for ws in ws_list],
+                            return_exceptions=True,
+                        )
+
+        async with websockets.serve(ws_handler, "", ws_port):
+            print(f"WebSocket on ws://localhost:{ws_port}")
+            await broadcast()
+
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        serve_cmd(sys.argv[2] if len(sys.argv) > 2 else str(OUT_PATH))
+    else:
+        main()
